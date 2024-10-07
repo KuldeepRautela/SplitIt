@@ -8,6 +8,10 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.runBlocking
+import models.ErrorResponse
+import models.Group
+import models.Response
+import models.User
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
 
@@ -20,15 +24,6 @@ fun main() {
     ).start(wait = true)
 
 }
-
-
-object UserInfo : Table() {
-    val username = varchar("username", 50)
-    val password = varchar("password", 30)
-    val id = integer("user_id").autoIncrement()
-    override val primaryKey = PrimaryKey(id, name = "user_id")
-}
-
 fun Application.myApp() {
     install(ContentNegotiation) {
         jackson { }
@@ -40,7 +35,7 @@ fun Application.myApp() {
         password = "pswd"
     )
     transaction {
-        SchemaUtils.create(UserInfo)
+        SchemaUtils.create(UserInfo,Groups,GroupMembers)
     }
     routing {
         get("/first") {
@@ -99,18 +94,33 @@ fun Application.myApp() {
 
         }
         post("/user/createGroup") {
-            val groupName = call.request.queryParameters["groupName"]
+            val group = call.receive<Group>()
+            var groupId1 : Int? = null
+            var memberGroupId : Int? = null
             transaction {
-
+              groupId1 =   Groups.insert {
+                    it[groupName] = group.groupName
+                    it[createdBy] = group.createdBy
+                    it[createdAt] = group.createdAt
+                } get Groups.groupId
+                group.groupMemberContact.forEach { contact ->
+                    if (groupId1 != null) {
+                        memberGroupId =   GroupMembers.insert {
+                            it[groupId] = groupId1!!
+                            it[groupMember] = contact
+                            it[totalAmountSpent] = 0
+                        } get GroupMembers.groupId
+                    }
+                }
             }
+
+            if(groupId1 !=null && memberGroupId !=null)
+            call.respond(HttpStatusCode.OK,"Your group is created")
+            else
+                call.respond(HttpStatusCode.Conflict,"Something went wrong!")
         }
     }
 }
-data class User(val username: String, val password: String) {
-    fun validate() = !(username.length < 5 || password.length < 5)
-}
-data class ErrorResponse(val responseCode: Int, val msg: String)
-data class Response(val responseCode: Int, val msg: String, val data: Any? = null)
 
 fun ResultRow.toUser() = User(this[UserInfo.username], this[UserInfo.password])
 //curl -X POST http://localhost:8081/user/signUp -H "Content-Type: application/json" -d '{"username": "Kanchan Rautela", "password": "password123"}'
